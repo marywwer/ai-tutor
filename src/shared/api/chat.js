@@ -1,12 +1,44 @@
 import { API_BASE_URL } from "./config";
-const DEV_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzY4MzA3NjgyLCJpYXQiOjE3NjgzMDY3ODIsImp0aSI6IjgwZTFhZTJhNzQzYTRlMzJiNTg5OGNjOTE1NWM0YjhkIiwidXNlcl9pZCI6Ijc0YTdhZjUyLWJkZjQtNDRhOS1hMDQyLWYxNWRiZWM1NjE1MiJ9.iADVB5lwbeuBO917LVYibHBPHpVeFNQEMV9oB1GwtFE";
+
+/**
+ * DEV TOKEN
+ * Используется ТОЛЬКО для локальной разработки.
+ *
+ * не использовать в production / npm-пакете
+ *
+ * В production авторизация осуществляется платформой.
+ */
+const DEV_TOKEN = import.meta.env.VITE_DEV_TOKEN;
 
 /* =========================
-   Chats
+   Helpers
    ========================= */
 
- export async function* animateTextByWords(text, delayMs = 80) {
-  const words = text.split(/\s+/);
+/**
+ * Универсальный builder для headers.
+ *
+ * В production Authorization добавляется платформой автоматически.
+ * В DEV — можно прокинуть токен через .env.local.
+ */
+function buildHeaders() {
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
+  // для локальной разработки
+  if (import.meta.env.DEV && DEV_TOKEN) {
+    headers.Authorization = `Bearer ${DEV_TOKEN}`;
+  }
+
+  return headers;
+}
+
+/* =========================
+   Text animation (UI-level)
+   ========================= */
+
+export async function* animateTextByWords(text, delayMs = 80) {
+  const words = text.trim().split(/\s+/);
   let current = "";
 
   for (const word of words) {
@@ -16,8 +48,15 @@ const DEV_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNj
   }
 }
 
+/* =========================
+   Chats
+   ========================= */
+
 export async function fetchChats() {
-  const res = await fetch(`${API_BASE_URL}/ml/api/ai/chats`);
+  const res = await fetch(`${API_BASE_URL}/ml/api/ai/chats`, {
+    headers: buildHeaders(),
+  });
+
   if (!res.ok) throw new Error("Failed to fetch chats");
   return res.json();
 }
@@ -25,7 +64,7 @@ export async function fetchChats() {
 export async function createChat(title = "Новый чат") {
   const res = await fetch(`${API_BASE_URL}/ml/api/ai/chats`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${DEV_TOKEN}`, },
+    headers: buildHeaders(),
     body: JSON.stringify({ title }),
   });
 
@@ -36,6 +75,7 @@ export async function createChat(title = "Новый чат") {
 export async function deleteChat(chatId) {
   const res = await fetch(`${API_BASE_URL}/ml/api/ai/chats/${chatId}`, {
     method: "DELETE",
+    headers: buildHeaders(),
   });
 
   if (!res.ok) throw new Error("Failed to delete chat");
@@ -51,7 +91,10 @@ export async function fetchChatHistory(chatId, limit = 200) {
   url.searchParams.set("chat_id", chatId);
   url.searchParams.set("limit", String(limit));
 
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), {
+    headers: buildHeaders(),
+  });
+
   if (!res.ok) throw new Error("Failed to fetch history");
 
   const data = await res.json();
@@ -65,10 +108,7 @@ export async function fetchChatHistory(chatId, limit = 200) {
 export async function sendMessageStream({ chatId, message }) {
   const res = await fetch(`${API_BASE_URL}/ml/api/ai/message`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${DEV_TOKEN}`, // временно для локалки
-    },
+    headers: buildHeaders(),
     body: JSON.stringify({ chat_id: chatId, message }),
   });
 
@@ -89,7 +129,7 @@ export async function sendMessageStream({ chatId, message }) {
       buffer += decoder.decode(value, { stream: true });
 
       if (buffer.includes("[DONE]")) {
-        yield buffer.replace(/\[DONE\]/g, "");
+        yield buffer.replace(/\[DONE\]/g, "").trim();
         break;
       }
     }
@@ -107,10 +147,9 @@ export async function sendMessageStream({ chatId, message }) {
       text: "",
     },
     stream: stream(),
-    animate: animateTextByWords,
+    animate: animateTextByWords, // UI-анимация, не часть API
   };
 }
-
 
 /* =========================
    Edit message
@@ -121,11 +160,13 @@ export async function editMessage(messageId, newText) {
     `${API_BASE_URL}/ml/api/ai/messages/${messageId}`,
     {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${DEV_TOKEN}`, },
+      headers: buildHeaders(),
       body: JSON.stringify({ new_text: newText }),
     }
   );
 
   if (!res.ok) throw new Error("Failed to edit message");
-  return res.text(); // бек возвращает plain text
+
+  // backend возвращает plain text / stream
+  return res.text();
 }
